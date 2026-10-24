@@ -2,9 +2,7 @@ name: Build HabitSync Android APK
 
 on:
   push:
-    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -21,15 +19,25 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Generate Gradle Wrapper if not present
+      - name: Accept Android SDK Licenses
         run: |
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 8.7
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Locate Project Root
+        id: find_root
+        run: |
+          FOUND=$(find . -maxdepth 3 -name "settings.gradle.kts" | head -n 1)
+          if [ -n "$FOUND" ]; then
+            echo "dir=$(dirname "$FOUND")" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Could not find settings.gradle.kts in repository! Make sure you uploaded the Android project files."
+            exit 1
           fi
-          chmod +x ./gradlew
 
       - name: Print Debug Keystore SHA-1 Fingerprint (For Google Cloud Console OAuth)
         run: |
@@ -41,10 +49,11 @@ jobs:
           keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android | grep SHA1
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        working-directory: ${{ steps.find_root.outputs.dir }}
+        run: gradle assembleDebug --no-daemon
 
       - name: Upload Installable APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: HabitSync-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.find_root.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
